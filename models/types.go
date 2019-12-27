@@ -8,3 +8,9 @@ type Profile struct {
 	Description string `bson:"description" json:"description"`
 	AvatarURL   string `bson:"avatarUrl" json:"avatarUrl"`
 }
+
+// Photo is the definition of a photo
+type Photo struct {
+	ID  string `bson:"_id" json:"_id"`
+	URL string `bson:"url" json:"url"`
+}

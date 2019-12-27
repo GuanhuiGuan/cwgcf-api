@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"gguan/cwgcf_db/config"
+
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -46,7 +48,7 @@ func NewProfileServer() *ProfileServer {
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	// "mongodb+srv://<username>:<password>@<cluster-address>/test?w=majority"
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(
-		"mongodb://localhost:27017",
+		config.MongoDBUrl,
 	))
 	if err != nil {
 		log.Fatal(err)

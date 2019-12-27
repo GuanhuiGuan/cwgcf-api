@@ -12,12 +12,17 @@ func main() {
 	router := mux.NewRouter()
 
 	mongoAPI := router.PathPrefix("/mongo/v1").Subrouter()
-	s := models.NewProfileServer()
-	mongoAPI.HandleFunc("/profiles", s.GetAll).Methods(http.MethodGet)
-	mongoAPI.HandleFunc("/profiles/{userID}", s.Get).Methods(http.MethodGet)
-	mongoAPI.HandleFunc("/profiles/{userID}", s.Post).Methods(http.MethodPost)
-	mongoAPI.HandleFunc("/profiles", s.Put).Methods(http.MethodPut)
-	mongoAPI.HandleFunc("/profiles/{userID}", s.Delete).Methods(http.MethodDelete)
+
+	ps := models.NewProfileServer()
+	mongoAPI.HandleFunc("/profiles", ps.GetAll).Methods(http.MethodGet)
+	mongoAPI.HandleFunc("/profiles/{userID}", ps.Get).Methods(http.MethodGet)
+	mongoAPI.HandleFunc("/profiles/{userID}", ps.Post).Methods(http.MethodPost)
+	mongoAPI.HandleFunc("/profiles", ps.Put).Methods(http.MethodPut)
+	mongoAPI.HandleFunc("/profiles/{userID}", ps.Delete).Methods(http.MethodDelete)
+
+	albumServer := models.NewAlbumServer()
+	mongoAPI.HandleFunc("/album", albumServer.GetAll).Methods(http.MethodGet)
+	mongoAPI.HandleFunc("/album", albumServer.Put).Methods(http.MethodPut)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
