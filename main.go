@@ -24,5 +24,13 @@ func main() {
 	mongoAPI.HandleFunc("/album", albumServer.GetAll).Methods(http.MethodGet)
 	mongoAPI.HandleFunc("/album", albumServer.Put).Methods(http.MethodPut)
 
+	forumServer := models.NewForumServer()
+	mongoAPI.HandleFunc("/forum/posts", forumServer.GetAllPosts).Methods(http.MethodGet)
+	mongoAPI.HandleFunc("/forum/post/{postID}", forumServer.GetCommentsForPost).Methods(http.MethodGet)
+	mongoAPI.HandleFunc("/forum/post", forumServer.PutPost).Methods(http.MethodPut)
+	mongoAPI.HandleFunc("/forum/comment/{parentID}", forumServer.AddComment).Methods(http.MethodPost)
+	mongoAPI.HandleFunc("/forum/post/{id}/{score}", forumServer.VotePost).Methods(http.MethodPost)
+	mongoAPI.HandleFunc("/forum/comment/{id}/{score}", forumServer.VoteComment).Methods(http.MethodPost)
+
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
