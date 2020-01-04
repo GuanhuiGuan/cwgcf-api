@@ -18,7 +18,8 @@ import (
 
 // ForumServer is the definition of a REST API for forum
 type ForumServer struct {
-	Client *mongo.Client
+	Client        *mongo.Client
+	ProfileClient *ProfileServer
 }
 
 // NewForumServer creates a new Server instance
@@ -34,6 +35,8 @@ func NewForumServer() *ForumServer {
 		log.Fatal(err)
 	}
 	log.Print("Connected to MongoDB")
+
+	s.ProfileClient = NewProfileServer()
 
 	s.Client = client
 	return s
@@ -59,9 +62,17 @@ func (s *ForumServer) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 
 		err := cur.Decode(&post)
 		if err != nil {
-			log.Print(err)
+			log.Printf("Error getting post: %v", err)
 			continue
 		}
+		// Get user profile
+		profile, err := s.ProfileClient.GetProfile(post.UserID)
+		if err != nil {
+			log.Printf("Error getting profile for ID %s: %v", post.UserID, err)
+			continue
+		}
+		post.UserProfile = profile
+
 		res = append(res, post)
 	}
 
@@ -287,6 +298,13 @@ func (s *ForumServer) queryComment(id string) *ForumComment {
 		log.Printf("Error getting comment from DB: %v", err)
 		return nil
 	}
+	// Get user profile
+	profile, err := s.ProfileClient.GetProfile(forumComment.UserID)
+	if err != nil {
+		log.Printf("Error getting profile for ID %s: %v", forumComment.UserID, err)
+		return nil
+	}
+	forumComment.UserProfile = profile
 	forumComment.Comments = subComments
 	return &forumComment
 }

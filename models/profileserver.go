@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -65,25 +66,30 @@ func (s *ProfileServer) Get(w http.ResponseWriter, r *http.Request) {
 	pathParams := mux.Vars(r)
 
 	if userID, ok := pathParams["userID"]; ok {
-		var err error
 		header := http.StatusOK
-		var profile Profile
 		res := []byte{}
 
-		collection := s.Client.Database("cwgcf").Collection("profiles")
-		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-		filter := bson.M{"id": userID}
-		err = collection.FindOne(ctx, filter).Decode(&profile)
+		profile, err := s.GetProfile(userID)
 		if err != nil {
 			header = http.StatusNotFound
 			log.Printf("Error getting profile from DB: %v", err)
+		} else {
+			res, _ = json.Marshal(profile)
 		}
 
-		res, _ = json.Marshal(profile)
-
 		w.WriteHeader(header)
-		w.Write([]byte(res))
+		w.Write(res)
 	}
+}
+
+// GetProfile finds a profile with given userID
+func (s *ProfileServer) GetProfile(userID string) (profile Profile, err error) {
+	collection := s.Client.Database("cwgcf").Collection("profiles")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	objectID, _ := primitive.ObjectIDFromHex(userID)
+	filter := bson.M{"_id": objectID}
+	err = collection.FindOne(ctx, filter).Decode(&profile)
+	return profile, err
 }
 
 // GetAll handles getAll requests

@@ -18,13 +18,14 @@ type Photo struct {
 // ForumPost is the definition of a post in forum
 // Save comments in a different table with key being post ID because comments are usually not fetched at the same time the content is fetched
 type ForumPost struct {
-	ID         string     `bson:"_id" json:"_id"`
-	Title      string     `bson:"title" json:"title"`
-	Content    string     `bson:"content" json:"content"`
-	Image      string     `bson:"image" json:"image"`
-	Timestamp  int64      `bson:"timestamp" json:"timestamp"`
-	UserID     string     `bson:"userId" json:"userId"`
-	ForumVotes ForumVotes `bson:"forumVotes" json:"forumVotes"`
+	ID          string     `bson:"_id" json:"_id"`
+	Title       string     `bson:"title" json:"title"`
+	Content     string     `bson:"content" json:"content"`
+	Image       string     `bson:"image" json:"image"`
+	Timestamp   int64      `bson:"timestamp" json:"timestamp"`
+	UserID      string     `bson:"userId" json:"userId"`
+	UserProfile Profile    `bson:"userProfile" json:"userProfile"`
+	ForumVotes  ForumVotes `bson:"forumVotes" json:"forumVotes"`
 }
 
 // ForumSubComments is the definition of subcomment ids of a post/comment
@@ -42,10 +43,11 @@ type ForumVotes struct {
 // ForumComment is the definition of a forum comment
 // Subcomments are usually fetched alongside with parent comments
 type ForumComment struct {
-	ID         string         `bson:"_id" json:"_id"`
-	Content    string         `bson:"content" json:"content"`
-	Timestamp  int64          `bson:"timestamp" json:"timestamp"`
-	UserID     string         `bson:"userId" json:"userId"`
-	ForumVotes ForumVotes     `bson:"forumVotes" json:"forumVotes"`
-	Comments   []ForumComment `bson:"comments" json:"comments"`
+	ID          string         `bson:"_id" json:"_id"`
+	Content     string         `bson:"content" json:"content"`
+	Timestamp   int64          `bson:"timestamp" json:"timestamp"`
+	UserID      string         `bson:"userId" json:"userId"`
+	UserProfile Profile        `bson:"userProfile" json:"userProfile"`
+	ForumVotes  ForumVotes     `bson:"forumVotes" json:"forumVotes"`
+	Comments    []ForumComment `bson:"comments" json:"comments"`
 }
