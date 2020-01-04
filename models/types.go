@@ -47,6 +47,5 @@ type ForumComment struct {
 	Timestamp  int64          `bson:"timestamp" json:"timestamp"`
 	UserID     string         `bson:"userId" json:"userId"`
 	ForumVotes ForumVotes     `bson:"forumVotes" json:"forumVotes"`
-	CommentIDs []string       `bson:"commentIds" json:"commentIds"`
 	Comments   []ForumComment `bson:"comments" json:"comments"`
 }
