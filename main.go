@@ -26,9 +26,9 @@ func main() {
 
 	forumServer := models.NewForumServer()
 	mongoAPI.HandleFunc("/forum/post", forumServer.GetAllPosts).Methods(http.MethodGet)
-	mongoAPI.HandleFunc("/forum/post/{postID}", forumServer.GetCommentsForPost).Methods(http.MethodGet)
+	mongoAPI.HandleFunc("/forum/post/{postID}", forumServer.GetCommentsForPostV2).Methods(http.MethodGet)
 	mongoAPI.HandleFunc("/forum/post", forumServer.PutPost).Methods(http.MethodPut)
-	mongoAPI.HandleFunc("/forum/comment/{parentID}", forumServer.AddComment).Methods(http.MethodPost)
+	mongoAPI.HandleFunc("/forum/comment/{parentID}", forumServer.AddCommentV2).Methods(http.MethodPost)
 	mongoAPI.HandleFunc("/forum/post/{id}/{score}", forumServer.VotePost).Methods(http.MethodPost)
 	mongoAPI.HandleFunc("/forum/comment/{id}/{score}", forumServer.VoteComment).Methods(http.MethodPost)
 

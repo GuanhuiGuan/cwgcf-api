@@ -82,6 +82,25 @@ func (s *ForumServer) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 	w.Write(resBytes)
 }
 
+// GetCommentsForPostV2 gets all comment for given post id
+func (s *ForumServer) GetCommentsForPostV2(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	pathParams := mux.Vars(r)
+
+	if postID, ok := pathParams["postID"]; ok {
+		comments := s.queryCommentByParent(postID)
+		if comments == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		res, _ := json.Marshal(&comments)
+		w.WriteHeader(http.StatusOK)
+		w.Write(res)
+		return
+	}
+	w.WriteHeader(http.StatusBadRequest)
+}
+
 // GetCommentsForPost gets all comment for given post id
 func (s *ForumServer) GetCommentsForPost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -112,7 +131,9 @@ func (s *ForumServer) GetCommentsForPost(w http.ResponseWriter, r *http.Request)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write(res)
+		return
 	}
+	w.WriteHeader(http.StatusBadRequest)
 }
 
 // PutPost handles forumPost put requests
@@ -136,6 +157,7 @@ func (s *ForumServer) PutPost(w http.ResponseWriter, r *http.Request) {
 		"content":    forumPost.Content,
 		"image":      forumPost.Image,
 		"timestamp":  forumPost.Timestamp,
+		"updatedAt":  forumPost.Timestamp,
 		"userId":     forumPost.UserID,
 		"forumVotes": forumPost.ForumVotes,
 	}
@@ -152,6 +174,58 @@ func (s *ForumServer) PutPost(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	w.Write([]byte(fmt.Sprintf(`{"insertID": %v}`, objectID.Hex())))
+}
+
+// AddCommentV2 handles request to add a comment and updates all parents' updatedAt
+func (s *ForumServer) AddCommentV2(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	pathParams := mux.Vars(r)
+
+	if parentID, ok := pathParams["parentID"]; ok {
+		// decode request body
+		var forumComment ForumComment
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&forumComment)
+		if err != nil {
+			log.Printf("Failed to decode body: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "Check your request"}`))
+			return
+		}
+		// Insert comment
+		collection := s.Client.Database("cwgcf").Collection("forumComments")
+		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+		doc := bson.M{
+			"parentId":   parentID,
+			"content":    forumComment.Content,
+			"timestamp":  forumComment.Timestamp,
+			"updatedAt":  forumComment.Timestamp,
+			"userId":     forumComment.UserID,
+			"forumVotes": forumComment.ForumVotes,
+		}
+		dbRes, err := collection.InsertOne(ctx, doc)
+		if err != nil {
+			log.Printf("Failed to insert comment: %v", err)
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(`{"error": "Failed to insert comment"}`))
+			return
+		}
+		objectID, _ := dbRes.InsertedID.(primitive.ObjectID)
+		commentID := objectID.Hex()
+
+		// Update parents' updatedAt
+		go func() {
+			err = s.updateCommentUpdatedAt(parentID, forumComment.Timestamp)
+			if err != nil {
+				log.Printf("Failed to update updatedAt: %v", err)
+			}
+		}()
+
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(fmt.Sprintf(`{"insertID": %v}`, commentID)))
+		return
+	}
+	w.WriteHeader(http.StatusBadRequest)
 }
 
 // AddComment handles request to add a comment
@@ -179,6 +253,7 @@ func (s *ForumServer) AddComment(w http.ResponseWriter, r *http.Request) {
 		doc := bson.M{
 			"content":    forumComment.Content,
 			"timestamp":  forumComment.Timestamp,
+			"updatedAt":  forumComment.Timestamp,
 			"userId":     forumComment.UserID,
 			"forumVotes": forumComment.ForumVotes,
 		}
@@ -265,6 +340,45 @@ func (s *ForumServer) VoteComment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// queryCommentByParent queries comments recursively
+func (s *ForumServer) queryCommentByParent(parentID string) []ForumComment {
+	collection := s.Client.Database("cwgcf").Collection("forumComments")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	filter := bson.M{"parentId": parentID}
+	cur, err := collection.Find(ctx, filter)
+	if err != nil {
+		log.Printf("Error getting comments with parentID %s: %v", parentID, err)
+		return nil
+	}
+	defer cur.Close(ctx)
+	res := []ForumComment{}
+	for cur.Next(ctx) {
+		var comment ForumComment
+
+		err := cur.Decode(&comment)
+		if err != nil {
+			log.Printf("Error getting comment: %v", err)
+			continue
+		}
+		// Get user profile
+		profile, err := s.ProfileClient.GetProfile(comment.UserID)
+		if err != nil {
+			log.Printf("Error getting profile for ID %s: %v", comment.UserID, err)
+			continue
+		}
+		comment.UserProfile = profile
+
+		// Find children comments
+		subComments := s.queryCommentByParent(comment.ID)
+		if subComments != nil {
+			comment.Comments = subComments
+		}
+
+		res = append(res, comment)
+	}
+	return res
+}
+
 // queryComment queries comments recursively
 func (s *ForumServer) queryComment(id string) *ForumComment {
 	// Get sub comment IDs
@@ -322,4 +436,44 @@ func (s *ForumServer) insertSubCommentIdsArray(id string) {
 		log.Printf("Failed to create subcomment array for id %s: %v", id, err)
 		return
 	}
+}
+
+func (s *ForumServer) updatePostUpdatedAt(id string, updatedAt int64) (err error) {
+	collection := s.Client.Database("cwgcf").Collection("forumPosts")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	objectID, _ := primitive.ObjectIDFromHex(id)
+	filter := bson.M{"_id": objectID}
+	update := bson.M{"$set": bson.M{"updatedAt": updatedAt}}
+	_, err = collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		log.Printf("Failed to update updatedAt for post id %s: %v", id, err)
+	}
+	return err
+}
+
+func (s *ForumServer) updateCommentUpdatedAt(id string, updatedAt int64) (err error) {
+	// Find parent
+	collection := s.Client.Database("cwgcf").Collection("forumComments")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	objectID, _ := primitive.ObjectIDFromHex(id)
+	filter := bson.M{"_id": objectID}
+	var comment ForumComment
+	err = collection.FindOne(ctx, filter).Decode(&comment)
+	// Try post if not found
+	if err != nil {
+		log.Printf("Failed to get comment with ID %s: %v", id, err)
+		return s.updatePostUpdatedAt(id, updatedAt)
+	}
+	// Update parents recursively
+	if len(comment.ParentID) > 0 {
+		s.updateCommentUpdatedAt(comment.ParentID, updatedAt)
+	}
+
+	// Update self
+	update := bson.M{"$set": bson.M{"updatedAt": updatedAt}}
+	_, err = collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		log.Printf("Failed to update updatedAt for comment id %s: %v", id, err)
+	}
+	return err
 }
