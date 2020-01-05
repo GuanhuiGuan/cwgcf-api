@@ -48,7 +48,9 @@ func (s *ForumServer) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 
 	collection := s.Client.Database("cwgcf").Collection("forumPosts")
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	cur, err := collection.Find(ctx, bson.D{})
+	opt := options.Find()
+	opt.SetSort(bson.D{{"forumVotes.votesSum", -1}, {"updatedAt", -1}})
+	cur, err := collection.Find(ctx, bson.D{}, opt)
 	if err != nil {
 		log.Printf("Error getting forum posts: %v", err)
 		w.WriteHeader(http.StatusNotFound)
@@ -80,6 +82,39 @@ func (s *ForumServer) GetAllPosts(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(resBytes)
+}
+
+// GetPost handles get one post requests
+func (s *ForumServer) GetPost(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	pathParams := mux.Vars(r)
+
+	if postID, ok := pathParams["postID"]; ok {
+		var forumPost ForumPost
+		collection := s.Client.Database("cwgcf").Collection("forumPosts")
+		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+		objectID, _ := primitive.ObjectIDFromHex(postID)
+		filter := bson.M{"_id": objectID}
+		err := collection.FindOne(ctx, filter).Decode(&forumPost)
+		if err != nil {
+			log.Printf("Error getting post with id %s from DB: %v", postID, err)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// Get user profile
+		profile, err := s.ProfileClient.GetProfile(forumPost.UserID)
+		if err != nil {
+			log.Printf("Error getting profile for ID %s: %v", forumPost.UserID, err)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		forumPost.UserProfile = profile
+		res, _ := json.Marshal(forumPost)
+		w.WriteHeader(http.StatusOK)
+		w.Write(res)
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
 }
 
 // GetCommentsForPostV2 gets all comment for given post id
@@ -296,9 +331,9 @@ func (s *ForumServer) VotePost(w http.ResponseWriter, r *http.Request) {
 			filter := bson.M{"_id": objectID}
 			var update map[string]interface{}
 			if score == "1" {
-				update = bson.M{"$inc": bson.M{"forumVotes.upvotes": 1}}
+				update = bson.M{"$inc": bson.M{"forumVotes.upvotes": 1, "forumVotes.votesSum": 1}}
 			} else {
-				update = bson.M{"$inc": bson.M{"forumVotes.downvotes": 1}}
+				update = bson.M{"$inc": bson.M{"forumVotes.downvotes": 1, "forumVotes.votesSum": -1}}
 			}
 			_, err := collection.UpdateOne(ctx, filter, update)
 			if err != nil {
@@ -324,9 +359,9 @@ func (s *ForumServer) VoteComment(w http.ResponseWriter, r *http.Request) {
 			filter := bson.M{"_id": objectID}
 			var update map[string]interface{}
 			if score == "1" {
-				update = bson.M{"$inc": bson.M{"forumVotes.upvotes": 1}}
+				update = bson.M{"$inc": bson.M{"forumVotes.upvotes": 1, "forumVotes.votesSum": 1}}
 			} else {
-				update = bson.M{"$inc": bson.M{"forumVotes.downvotes": 1}}
+				update = bson.M{"$inc": bson.M{"forumVotes.downvotes": 1, "forumVotes.votesSum": -1}}
 			}
 			_, err := collection.UpdateOne(ctx, filter, update)
 			if err != nil {
@@ -345,7 +380,9 @@ func (s *ForumServer) queryCommentByParent(parentID string) []ForumComment {
 	collection := s.Client.Database("cwgcf").Collection("forumComments")
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	filter := bson.M{"parentId": parentID}
-	cur, err := collection.Find(ctx, filter)
+	opt := options.Find()
+	opt.SetSort(bson.D{{"forumVotes.votesSum", -1}, {"updatedAt", -1}})
+	cur, err := collection.Find(ctx, filter, opt)
 	if err != nil {
 		log.Printf("Error getting comments with parentID %s: %v", parentID, err)
 		return nil

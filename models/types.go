@@ -39,6 +39,7 @@ type ForumSubComments struct {
 type ForumVotes struct {
 	Upvotes   int64 `bson:"upvotes" json:"upvotes"`
 	Downvotes int64 `bson:"downvotes" json:"downvotes"`
+	VotesSum  int64 `bson:"votesSum" json:"votesSum"`
 }
 
 // ForumComment is the definition of a forum comment
