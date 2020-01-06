@@ -118,7 +118,7 @@ func (s *ForumServer) GetPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetCommentsForPostV2 gets all comment for given post id
-func (s *ForumServer) GetCommentsForPostV2(w http.ResponseWriter, r *http.Request) {
+func (s *ForumServer) GetCommentsForPost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	pathParams := mux.Vars(r)
 
@@ -129,41 +129,6 @@ func (s *ForumServer) GetCommentsForPostV2(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		res, _ := json.Marshal(&comments)
-		w.WriteHeader(http.StatusOK)
-		w.Write(res)
-		return
-	}
-	w.WriteHeader(http.StatusBadRequest)
-}
-
-// GetCommentsForPost gets all comment for given post id
-func (s *ForumServer) GetCommentsForPost(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	pathParams := mux.Vars(r)
-
-	if postID, ok := pathParams["postID"]; ok {
-		// Get sub comment IDs
-		var forumSubComments ForumSubComments
-		collection := s.Client.Database("cwgcf").Collection("forumSubComments")
-		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-		filter := bson.M{"parentId": postID}
-		err := collection.FindOne(ctx, filter).Decode(&forumSubComments)
-		if err != nil {
-			log.Printf("Error getting forum comments of parentID %s from DB: %v", postID, err)
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-
-		comments := []ForumComment{}
-		for _, subID := range forumSubComments.CommentIDs {
-			c := s.queryComment(subID)
-			if c != nil {
-				comments = append(comments, *c)
-			}
-		}
-
-		res, _ := json.Marshal(comments)
-
 		w.WriteHeader(http.StatusOK)
 		w.Write(res)
 		return
@@ -191,8 +156,8 @@ func (s *ForumServer) PutPost(w http.ResponseWriter, r *http.Request) {
 		"title":      forumPost.Title,
 		"content":    forumPost.Content,
 		"image":      forumPost.Image,
-		"timestamp":  forumPost.Timestamp,
-		"updatedAt":  forumPost.Timestamp,
+		"createdAt":  forumPost.CreatedAt,
+		"updatedAt":  forumPost.CreatedAt,
 		"userId":     forumPost.UserID,
 		"forumVotes": forumPost.ForumVotes,
 	}
@@ -233,8 +198,8 @@ func (s *ForumServer) AddCommentV2(w http.ResponseWriter, r *http.Request) {
 		doc := bson.M{
 			"parentId":   parentID,
 			"content":    forumComment.Content,
-			"timestamp":  forumComment.Timestamp,
-			"updatedAt":  forumComment.Timestamp,
+			"createdAt":  forumComment.CreatedAt,
+			"updatedAt":  forumComment.CreatedAt,
 			"userId":     forumComment.UserID,
 			"forumVotes": forumComment.ForumVotes,
 		}
@@ -250,7 +215,7 @@ func (s *ForumServer) AddCommentV2(w http.ResponseWriter, r *http.Request) {
 
 		// Update parents' updatedAt
 		go func() {
-			err = s.updateCommentUpdatedAt(parentID, forumComment.Timestamp)
+			err = s.updateCommentUpdatedAt(parentID, forumComment.CreatedAt)
 			if err != nil {
 				log.Printf("Failed to update updatedAt: %v", err)
 			}
@@ -287,8 +252,8 @@ func (s *ForumServer) AddComment(w http.ResponseWriter, r *http.Request) {
 		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 		doc := bson.M{
 			"content":    forumComment.Content,
-			"timestamp":  forumComment.Timestamp,
-			"updatedAt":  forumComment.Timestamp,
+			"createdAt":  forumComment.CreatedAt,
+			"updatedAt":  forumComment.CreatedAt,
 			"userId":     forumComment.UserID,
 			"forumVotes": forumComment.ForumVotes,
 		}
@@ -319,60 +284,114 @@ func (s *ForumServer) AddComment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// VotePost handles request to vote post
-func (s *ForumServer) VotePost(w http.ResponseWriter, r *http.Request) {
+func (s *ForumServer) setUpdateKeyValue(unvote bool, upvote bool) (string, bool) {
+	var prefix string
+	var value bool
+	if unvote {
+		value = false
+		if upvote {
+			prefix = "forumVotes.upvotedIds."
+		} else {
+			prefix = "forumVotes.downvotedIds."
+		}
+	} else {
+		value = true
+		if upvote {
+			prefix = "forumVotes.upvotedIds."
+		} else {
+			prefix = "forumVotes.downvotedIds."
+		}
+	}
+	return prefix, value
+}
+
+// votePost is the internal core for VotePost and UnvotePost
+func (s *ForumServer) _votePost(w http.ResponseWriter, r *http.Request, update map[string]interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	pathParams := mux.Vars(r)
 	if id, ok := pathParams["id"]; ok {
 		if score, ok := pathParams["score"]; ok {
+			upvoted := false
+			if score == "1" {
+				upvoted = true
+			}
 			collection := s.Client.Database("cwgcf").Collection("forumPosts")
 			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 			objectID, _ := primitive.ObjectIDFromHex(id)
 			filter := bson.M{"_id": objectID}
 			var update map[string]interface{}
-			if score == "1" {
+			if upvoted {
 				update = bson.M{"$inc": bson.M{"forumVotes.upvotes": 1, "forumVotes.votesSum": 1}}
 			} else {
 				update = bson.M{"$inc": bson.M{"forumVotes.downvotes": 1, "forumVotes.votesSum": -1}}
 			}
-			_, err := collection.UpdateOne(ctx, filter, update)
+			var forumPost ForumPost
+			err := collection.FindOneAndUpdate(ctx, filter, update).Decode(&forumPost)
+			// _, err := collection.UpdateOne(ctx, filter, update)
 			if err != nil {
 				log.Printf("Failed to update voting: %v", err)
 				w.WriteHeader(http.StatusConflict)
 				w.Write([]byte(`{"error": "Failed to update voting"}`))
 				return
 			}
+			if upvoted {
+				forumPost.ForumVotes.Upvotes++
+				forumPost.ForumVotes.VotesSum++
+			} else {
+				forumPost.ForumVotes.Downvotes++
+				forumPost.ForumVotes.VotesSum--
+			}
+			res, _ := json.Marshal(forumPost)
 			w.WriteHeader(http.StatusOK)
+			w.Write(res)
+			return
 		}
 	}
+	w.WriteHeader(http.StatusBadRequest)
 }
 
 // VoteComment handles request to vote comment
-func (s *ForumServer) VoteComment(w http.ResponseWriter, r *http.Request) {
+func (s *ForumServer) _VoteComment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	pathParams := mux.Vars(r)
 	if id, ok := pathParams["id"]; ok {
 		if score, ok := pathParams["score"]; ok {
+			upvoted := false
+			if score == "1" {
+				upvoted = true
+			}
 			collection := s.Client.Database("cwgcf").Collection("forumComments")
 			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 			objectID, _ := primitive.ObjectIDFromHex(id)
 			filter := bson.M{"_id": objectID}
 			var update map[string]interface{}
-			if score == "1" {
+			if upvoted {
 				update = bson.M{"$inc": bson.M{"forumVotes.upvotes": 1, "forumVotes.votesSum": 1}}
 			} else {
 				update = bson.M{"$inc": bson.M{"forumVotes.downvotes": 1, "forumVotes.votesSum": -1}}
 			}
-			_, err := collection.UpdateOne(ctx, filter, update)
+			var forumComment ForumComment
+			err := collection.FindOneAndUpdate(ctx, filter, update).Decode(&forumComment)
 			if err != nil {
 				log.Printf("Failed to update voting: %v", err)
 				w.WriteHeader(http.StatusConflict)
 				w.Write([]byte(`{"error": "Failed to update voting"}`))
 				return
 			}
+			if upvoted {
+				forumComment.ForumVotes.Upvotes++
+				forumComment.ForumVotes.VotesSum++
+			} else {
+				forumComment.ForumVotes.Downvotes++
+				forumComment.ForumVotes.VotesSum--
+			}
+			res, _ := json.Marshal(forumComment)
 			w.WriteHeader(http.StatusOK)
+			w.Write(res)
+			return
 		}
 	}
+	w.WriteHeader(http.StatusBadRequest)
 }
 
 // queryCommentByParent queries comments recursively
@@ -414,50 +433,6 @@ func (s *ForumServer) queryCommentByParent(parentID string) []ForumComment {
 		res = append(res, comment)
 	}
 	return res
-}
-
-// queryComment queries comments recursively
-func (s *ForumServer) queryComment(id string) *ForumComment {
-	// Get sub comment IDs
-	var forumSubComments ForumSubComments
-	collection := s.Client.Database("cwgcf").Collection("forumSubComments")
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	filter := bson.M{"parentId": id}
-	err := collection.FindOne(ctx, filter).Decode(&forumSubComments)
-	if err != nil {
-		log.Printf("Error getting forum comments of parentId %s from DB: %v", id, err)
-	}
-
-	// Get content for each sub comment
-	subComments := []ForumComment{}
-	if len(forumSubComments.CommentIDs) > 0 {
-		for _, subID := range forumSubComments.CommentIDs {
-			c := s.queryComment(subID)
-			if c != nil {
-				subComments = append(subComments, *c)
-			}
-		}
-	}
-
-	// Get content of current id
-	var forumComment ForumComment
-	collection = s.Client.Database("cwgcf").Collection("forumComments")
-	objectID, _ := primitive.ObjectIDFromHex(id)
-	filter = bson.M{"_id": objectID}
-	err = collection.FindOne(ctx, filter).Decode(&forumComment)
-	if err != nil {
-		log.Printf("Error getting comment from DB: %v", err)
-		return nil
-	}
-	// Get user profile
-	profile, err := s.ProfileClient.GetProfile(forumComment.UserID)
-	if err != nil {
-		log.Printf("Error getting profile for ID %s: %v", forumComment.UserID, err)
-		return nil
-	}
-	forumComment.UserProfile = profile
-	forumComment.Comments = subComments
-	return &forumComment
 }
 
 func (s *ForumServer) insertSubCommentIdsArray(id string) {
@@ -513,4 +488,115 @@ func (s *ForumServer) updateCommentUpdatedAt(id string, updatedAt int64) (err er
 		log.Printf("Failed to update updatedAt for comment id %s: %v", id, err)
 	}
 	return err
+}
+
+// GetUserVoteMap gets voteMap of a user
+func (s *ForumServer) GetUserVoteMap(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	header := http.StatusInternalServerError
+	var res []byte
+	var err error
+	defer func() {
+		if err != nil {
+			log.Printf("Error getting voteMap: %v", err)
+		}
+		w.WriteHeader(header)
+		w.Write(res)
+	}()
+	pathParams := mux.Vars(r)
+	if id, ok := pathParams["id"]; ok {
+		collection := s.Client.Database("cwgcf").Collection("forumUserVotes")
+		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+		filter := bson.M{"userId": id}
+		var forumUserVotes ForumUserVotes
+		err := collection.FindOne(ctx, filter).Decode(&forumUserVotes)
+		if err != nil {
+			header = http.StatusInternalServerError
+			return
+		}
+		res, _ = json.Marshal(forumUserVotes)
+		header = http.StatusOK
+	}
+}
+
+// Vote handles vote requests
+func (s *ForumServer) Vote(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	header := http.StatusInternalServerError
+	var res []byte
+	var err error
+	defer func() {
+		if err != nil {
+			log.Printf("Error getting voteMap: %v", err)
+		}
+		w.WriteHeader(header)
+		w.Write(res)
+	}()
+
+	// Parse request
+	var request VoteRequest
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&request)
+	if err != nil {
+		header = http.StatusBadRequest
+		return
+	}
+	// Update vote
+	if request.Offset > 2 || request.Offset < -2 {
+		request.Offset = 0
+	}
+	collectionName := "forumComments"
+	if request.IsPost {
+		collectionName = "forumPosts"
+	}
+	err = s.vote(request, request.Offset, collectionName)
+	if err != nil {
+		header = http.StatusInternalServerError
+		return
+	}
+	// Update voteMap
+	err = s.postUserVoteMap(request)
+	if err != nil {
+		header = http.StatusInternalServerError
+		return
+	}
+	header = http.StatusOK
+}
+
+// vote changes the votesSum value
+// offset: do upvote OR undo downvote = 1; do downvote OR undo upvote = -1;
+func (s *ForumServer) vote(request VoteRequest, offset int, collectionName string) error {
+	collection := s.Client.Database("cwgcf").Collection(collectionName)
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	objectID, _ := primitive.ObjectIDFromHex(request.VoteID)
+	filter := bson.M{"_id": objectID}
+	update := bson.M{"$inc": bson.M{"forumVotes.votesSum": offset}}
+	opt := options.Update()
+	opt.SetUpsert(true)
+	_, err := collection.UpdateOne(ctx, filter, update, opt)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// postUserVoteMap updates a user's voteMap
+func (s *ForumServer) postUserVoteMap(request VoteRequest) error {
+	var value int
+	if request.Offset > 0 {
+		value = 1
+	} else if request.Offset < 0 {
+		value = -1
+	}
+	collection := s.Client.Database("cwgcf").Collection("forumUserVotes")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	filter := bson.M{"userId": request.UserID}
+	update := bson.M{"$set": bson.M{"voteMap." + request.VoteID: value}}
+	opt := options.Update()
+	opt.SetUpsert(true)
+	_, err := collection.UpdateOne(ctx, filter, update, opt)
+	if err != nil {
+		return err
+	}
+	return nil
 }

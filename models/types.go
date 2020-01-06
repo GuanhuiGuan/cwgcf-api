@@ -22,20 +22,15 @@ type ForumPost struct {
 	Title       string     `bson:"title" json:"title"`
 	Content     string     `bson:"content" json:"content"`
 	Image       string     `bson:"image" json:"image"`
-	Timestamp   int64      `bson:"timestamp" json:"timestamp"`
+	CreatedAt   int64      `bson:"createdAt" json:"createdAt"`
 	UpdatedAt   int64      `bson:"updatedAt" json:"updatedAt"`
 	UserID      string     `bson:"userId" json:"userId"`
 	UserProfile Profile    `bson:"userProfile" json:"userProfile"`
 	ForumVotes  ForumVotes `bson:"forumVotes" json:"forumVotes"`
 }
 
-// ForumSubComments is the definition of subcomment ids of a post/comment
-type ForumSubComments struct {
-	ParentID   string   `bson:"parentId" json:"parentId"`
-	CommentIDs []string `bson:"commentIds" json:"commentIds"`
-}
-
 // ForumVotes is the definition of votes of a forum post/comment
+// Upvotes/downvotes not used at the moment
 type ForumVotes struct {
 	Upvotes   int64 `bson:"upvotes" json:"upvotes"`
 	Downvotes int64 `bson:"downvotes" json:"downvotes"`
@@ -48,10 +43,29 @@ type ForumComment struct {
 	ID          string         `bson:"_id" json:"_id"`
 	ParentID    string         `bson:"parentId" json:"parentId"`
 	Content     string         `bson:"content" json:"content"`
-	Timestamp   int64          `bson:"timestamp" json:"timestamp"`
+	CreatedAt   int64          `bson:"createdAt" json:"createdAt"`
 	UpdatedAt   int64          `bson:"updatedAt" json:"updatedAt"`
 	UserID      string         `bson:"userId" json:"userId"`
 	UserProfile Profile        `bson:"userProfile" json:"userProfile"`
 	ForumVotes  ForumVotes     `bson:"forumVotes" json:"forumVotes"`
 	Comments    []ForumComment `bson:"comments" json:"comments"`
+}
+
+//VoteRequest is the definition for vote request
+/*
+	IsPost indicates if vote is for forumPost or forumComment
+	Offset indicates the offset of votesSum
+	{0: no change, 1: unvote->upvote, 2: downvote->upvote, -1: unvote->downvote, -2: upvote->downvote}
+*/
+type VoteRequest struct {
+	VoteID string `bson:"voteId" json:"voteId"`
+	UserID string `bson:"userId" json:"userId"`
+	IsPost bool   `bson:"isPost" json:"isPost"`
+	Offset int    `bson:"offset" json:"offset"`
+}
+
+// ForumUserVotes is the definition to record what the user voted
+type ForumUserVotes struct {
+	UserID  string         `bson:"userId" json:"userId"`
+	VoteMap map[string]int `bson:"voteMap" json:"voteMap"`
 }
