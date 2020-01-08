@@ -51,21 +51,28 @@ type ForumComment struct {
 	Comments    []ForumComment `bson:"comments" json:"comments"`
 }
 
-//VoteRequest is the definition for vote request
+//ForumVoteRequest is the definition for vote request
 /*
 	IsPost indicates if vote is for forumPost or forumComment
-	Offset indicates the offset of votesSum
-	{0: no change, 1: unvote->upvote, 2: downvote->upvote, -1: unvote->downvote, -2: upvote->downvote}
+	TapUpvote indicates if tapped on upvote or downvote (could be vote or unvote, will be decided in Backend)
 */
-type VoteRequest struct {
-	VoteID string `bson:"voteId" json:"voteId"`
-	UserID string `bson:"userId" json:"userId"`
-	IsPost bool   `bson:"isPost" json:"isPost"`
-	Offset int    `bson:"offset" json:"offset"`
+type ForumVoteRequest struct {
+	VoteID    string `bson:"voteId" json:"voteId"`
+	UserID    string `bson:"userId" json:"userId"`
+	IsPost    bool   `bson:"isPost" json:"isPost"`
+	UpdatedAt int64  `bson:"updatedAt" json:"updatedAt"`
+	TapUpvote bool   `bson:"tapUpvote" json:"tapUpvote"`
 }
 
 // ForumUserVotes is the definition to record what the user voted
 type ForumUserVotes struct {
-	UserID  string         `bson:"userId" json:"userId"`
-	VoteMap map[string]int `bson:"voteMap" json:"voteMap"`
+	UserID  string                       `bson:"userId" json:"userId"`
+	VoteMap map[string]ForumVoteWithTime `bson:"voteMap" json:"voteMap"`
+}
+
+// ForumVoteWithTime is the definition to record user's vote and the timestamp
+// VoteStatus: 0: unvoted, 1: upvoted, -1: downvoted
+type ForumVoteWithTime struct {
+	VoteStatus int   `bson:"voteStatus" json:"voteStatus"`
+	UpdatedAt  int64 `bson:"updatedAt" json:"updatedAt"`
 }

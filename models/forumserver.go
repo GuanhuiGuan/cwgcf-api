@@ -493,7 +493,7 @@ func (s *ForumServer) updateCommentUpdatedAt(id string, updatedAt int64) (err er
 // GetUserVoteMap gets voteMap of a user
 func (s *ForumServer) GetUserVoteMap(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	header := http.StatusInternalServerError
+	header := http.StatusNotFound
 	var res []byte
 	var err error
 	defer func() {
@@ -505,11 +505,7 @@ func (s *ForumServer) GetUserVoteMap(w http.ResponseWriter, r *http.Request) {
 	}()
 	pathParams := mux.Vars(r)
 	if id, ok := pathParams["id"]; ok {
-		collection := s.Client.Database("cwgcf").Collection("forumUserVotes")
-		ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-		filter := bson.M{"userId": id}
-		var forumUserVotes ForumUserVotes
-		err := collection.FindOne(ctx, filter).Decode(&forumUserVotes)
+		forumUserVotes, err := s.getUserVoteMap(id)
 		if err != nil {
 			header = http.StatusInternalServerError
 			return
@@ -519,11 +515,23 @@ func (s *ForumServer) GetUserVoteMap(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *ForumServer) getUserVoteMap(id string) (*ForumUserVotes, error) {
+	collection := s.Client.Database("cwgcf").Collection("forumUserVotes")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	filter := bson.M{"userId": id}
+	var forumUserVotes ForumUserVotes
+	err := collection.FindOne(ctx, filter).Decode(&forumUserVotes)
+	if err != nil {
+		return nil, err
+	}
+	return &forumUserVotes, nil
+}
+
 // Vote handles vote requests
 func (s *ForumServer) Vote(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	header := http.StatusInternalServerError
-	var res []byte
+	res, _ := json.Marshal(0)
 	var err error
 	defer func() {
 		if err != nil {
@@ -534,38 +542,57 @@ func (s *ForumServer) Vote(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Parse request
-	var request VoteRequest
+	var request ForumVoteRequest
 	decoder := json.NewDecoder(r.Body)
 	err = decoder.Decode(&request)
 	if err != nil {
 		header = http.StatusBadRequest
 		return
 	}
+
+	// Get votemap and find current vote status
+	forumUserVotes, err := s.getUserVoteMap(request.UserID)
+	if err != nil {
+		// User not voted yet
+		log.Printf("User %s hasn't voted before", request.UserID)
+		forumUserVotes = &ForumUserVotes{
+			VoteMap: map[string]ForumVoteWithTime{},
+		}
+	}
+	// If not found, defaulted vote status to 0
+	voteWithTime, _ := forumUserVotes.VoteMap[request.VoteID]
+
 	// Update vote
-	if request.Offset > 2 || request.Offset < -2 {
-		request.Offset = 0
+	prevStatus := voteWithTime.VoteStatus
+	var curStatus int
+	if request.TapUpvote && prevStatus != 1 {
+		curStatus = 1
+	} else if !request.TapUpvote && prevStatus != -1 {
+		curStatus = -1
 	}
 	collectionName := "forumComments"
 	if request.IsPost {
 		collectionName = "forumPosts"
 	}
-	err = s.vote(request, request.Offset, collectionName)
+	err = s.vote(request, curStatus-prevStatus, collectionName)
 	if err != nil {
 		header = http.StatusInternalServerError
 		return
 	}
+
 	// Update voteMap
-	err = s.postUserVoteMap(request)
+	err = s.postUserVoteMap(request, curStatus)
 	if err != nil {
 		header = http.StatusInternalServerError
 		return
 	}
 	header = http.StatusOK
+	res, _ = json.Marshal(curStatus)
 }
 
 // vote changes the votesSum value
 // offset: do upvote OR undo downvote = 1; do downvote OR undo upvote = -1;
-func (s *ForumServer) vote(request VoteRequest, offset int, collectionName string) error {
+func (s *ForumServer) vote(request ForumVoteRequest, offset int, collectionName string) error {
 	collection := s.Client.Database("cwgcf").Collection(collectionName)
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	objectID, _ := primitive.ObjectIDFromHex(request.VoteID)
@@ -581,17 +608,11 @@ func (s *ForumServer) vote(request VoteRequest, offset int, collectionName strin
 }
 
 // postUserVoteMap updates a user's voteMap
-func (s *ForumServer) postUserVoteMap(request VoteRequest) error {
-	var value int
-	if request.Offset > 0 {
-		value = 1
-	} else if request.Offset < 0 {
-		value = -1
-	}
+func (s *ForumServer) postUserVoteMap(request ForumVoteRequest, curStatus int) error {
 	collection := s.Client.Database("cwgcf").Collection("forumUserVotes")
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	filter := bson.M{"userId": request.UserID}
-	update := bson.M{"$set": bson.M{"voteMap." + request.VoteID: value}}
+	update := bson.M{"$set": bson.M{fmt.Sprintf("voteMap.%s.voteStatus", request.VoteID): curStatus}}
 	opt := options.Update()
 	opt.SetUpsert(true)
 	_, err := collection.UpdateOne(ctx, filter, update, opt)
