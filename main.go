@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gguan/cwgcf_db/clients"
 	"gguan/cwgcf_db/models"
 	"log"
 	"net/http"
@@ -32,6 +33,10 @@ func main() {
 	mongoAPI.HandleFunc("/forum/comment/{parentID}", forumServer.AddCommentV2).Methods(http.MethodPost)
 	mongoAPI.HandleFunc("/forum/vote/{id}", forumServer.GetUserVoteMap).Methods(http.MethodGet)
 	mongoAPI.HandleFunc("/forum/vote", forumServer.Vote).Methods(http.MethodPost)
+
+	forumServerV2 := clients.NewForumServer()
+	mongoAPI.HandleFunc("/forum/v2/post", forumServerV2.GetForumPosts).Methods(http.MethodGet)
+	mongoAPI.HandleFunc("/forum/v2/post", forumServerV2.SaveForumPost).Methods(http.MethodPut)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
