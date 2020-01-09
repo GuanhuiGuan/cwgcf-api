@@ -67,7 +67,9 @@ func (s *ForumServer) GetForumPosts(w http.ResponseWriter, r *http.Request) {
 	}
 	// Transform DBPosts to []ForumPostV2
 	defer cur.Close(ctx)
-	res := []*models.ForumPostV2{}
+	response := models.GetForumPostsResponse{}
+	posts := []models.ForumPostV2{}
+	votes := map[string]models.ForumVote{}
 	for cur.Next(ctx) {
 		var dbPost models.DBForumPost
 		err := cur.Decode(&dbPost)
@@ -76,17 +78,21 @@ func (s *ForumServer) GetForumPosts(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		// Get user profile
-		log.Printf("USER ID: %s", dbPost.UserID)
 		profile, err := s.ProfileClient.GetProfile(dbPost.UserID)
 		if err != nil {
 			log.Printf("Error getting profile for ID %s: %v", dbPost.UserID, err)
 			continue
 		}
 		post := s.dbPostToPost(dbPost, profile)
-		res = append(res, &post)
-	}
+		posts = append(posts, post)
 
-	resBytes, _ := json.Marshal(res)
+		// Get vote
+		vote := s.getVote(dbPost.VoteID)
+		votes[dbPost.VoteID] = vote
+	}
+	response.ForumPosts = posts
+	response.ForumVotesMap = votes
+	resBytes, _ := json.Marshal(response)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(resBytes)
@@ -111,7 +117,6 @@ func (s *ForumServer) SaveForumPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	forumPost := saveForumPostsRequest.ForumPost
-	log.Printf("forumPost: %v", forumPost)
 	// Create and get voteID
 	voteID := s.createAndGetVoteID(forumPost.Metadata)
 	log.Printf("VoteID: %s", voteID)
@@ -181,4 +186,20 @@ func (s *ForumServer) createAndGetVoteID(metadata models.Metadata) string {
 	}
 	objectID, _ := dbRes.InsertedID.(primitive.ObjectID)
 	return objectID.Hex()
+}
+
+func (s *ForumServer) getVote(id string) models.ForumVote {
+	collection := s.Client.Database("cwgcf").Collection("forumVotes")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	objectID, _ := primitive.ObjectIDFromHex(id)
+	filter := bson.M{
+		"_id": objectID,
+	}
+	var vote models.ForumVote
+	err := collection.FindOne(ctx, filter).Decode(&vote)
+	if err != nil {
+		log.Printf("Error getting vote with id %s: %v", id, err)
+		return vote
+	}
+	return vote
 }

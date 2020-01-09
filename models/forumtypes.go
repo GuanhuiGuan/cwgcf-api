@@ -7,7 +7,8 @@ type GetForumPostsRequest struct {
 
 // GetForumPostsResponse is the response definition for mobile to get forum posts
 type GetForumPostsResponse struct {
-	ForumPosts []*ForumPostV2
+	ForumPosts    []ForumPostV2
+	ForumVotesMap map[string]ForumVote
 }
 
 // SaveForumPostsRequest is the request definition for mobile to get forum posts
