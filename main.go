@@ -38,6 +38,7 @@ func main() {
 	mongoAPI.HandleFunc("/forum/v2/post", forumServerV2.GetForumPosts).Methods(http.MethodGet)
 	mongoAPI.HandleFunc("/forum/v2/post", forumServerV2.SaveForumPost).Methods(http.MethodPut)
 	mongoAPI.HandleFunc("/forum/v2/vote", forumServerV2.HandleVoteEvent).Methods(http.MethodPost)
+	mongoAPI.HandleFunc("/forum/v2/vote", forumServerV2.GetVoteMap).Methods(http.MethodGet)
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }

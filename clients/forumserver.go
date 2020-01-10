@@ -163,7 +163,42 @@ func (s *ForumServer) HandleVoteEvent(w http.ResponseWriter, r *http.Request) {
 	// Update vote
 	s.updateVote(forumVoteUpdateRequest)
 	// Update userVoteMap
+	s.updateVoteMap(forumVoteUpdateRequest)
 
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetVoteMap gets votemap of given user
+func (s *ForumServer) GetVoteMap(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var err error
+	var res []byte
+	defer func() {
+		if res != nil {
+			w.Write(res)
+		}
+	}()
+	// Parse request
+	var request models.GetForumVoteMapRequest
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&request)
+	if err != nil {
+		log.Printf("Failed to decode request: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	// Get votemap
+	collection := s.Client.Database("cwgcf").Collection("forumVoteMap")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	filter := bson.M{"userId": request.UserID}
+	var voteMap models.ForumVoteMap
+	err = collection.FindOne(ctx, filter).Decode(&voteMap)
+	if err != nil {
+		log.Printf("Error getting forum vote map: %v", err)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	res, _ = json.Marshal(voteMap)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -252,5 +287,27 @@ func (s *ForumServer) updateVote(request models.ForumVoteUpdateRequest) {
 	_, err := collection.UpdateOne(ctx, filter, update, opt)
 	if err != nil {
 		log.Printf("Error updating vote with id %s: %v", request.VoteID, err)
+	}
+}
+
+// updateVoteMap updates a user's votemap
+func (s *ForumServer) updateVoteMap(request models.ForumVoteUpdateRequest) {
+	collection := s.Client.Database("cwgcf").Collection("forumVoteMap")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	filter := bson.M{
+		"userId": request.UserID,
+	}
+	entryPrefix := fmt.Sprintf("voteMap.%s.", request.VoteID)
+	update := bson.M{
+		"$set": bson.M{
+			entryPrefix + "voteStatus": request.VoteStatus,
+			entryPrefix + "metadata":   request.Metadata,
+		},
+	}
+	opt := options.Update()
+	opt.SetUpsert(true)
+	_, err := collection.UpdateOne(ctx, filter, update, opt)
+	if err != nil {
+		log.Printf("Error updating votemap with userID %s and voteID %s: %v", request.VoteID, request.VoteID, err)
 	}
 }

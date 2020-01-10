@@ -59,10 +59,28 @@ type ForumVote struct {
 	Metadata   Metadata `bson:"metadata" json:"metadata"`
 }
 
+// ForumVoteUpdateRequest is the definition of vote update request
 type ForumVoteUpdateRequest struct {
 	VoteID     string   `bson:"voteId" json:"voteId"`
 	Offset     int64    `bson:"offset" json:"offset"`
 	VoteStatus int      `bson:"voteStatus" json:"voteStatus"`
 	UserID     string   `bson:"userId" json:"userId"`
 	Metadata   Metadata `bson:"metadata" json:"metadata"`
+}
+
+// ForumVoteMapEntry is an entry in forum vote map
+type ForumVoteMapEntry struct {
+	VoteStatus int      `bson:"voteStatus" json:"voteStatus"`
+	Metadata   Metadata `bson:"metadata" json:"metadata"`
+}
+
+// ForumVoteMap is the definition to record what the user voted
+type ForumVoteMap struct {
+	UserID  string                       `bson:"userId" json:"userId"`
+	VoteMap map[string]ForumVoteMapEntry `bson:"voteMap" json:"voteMap"`
+}
+
+// GetForumVoteMapRequest is the definition of forum vote map request
+type GetForumVoteMapRequest struct {
+	UserID string `bson:"userId" json:"userId"`
 }
