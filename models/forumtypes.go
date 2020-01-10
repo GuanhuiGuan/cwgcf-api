@@ -16,8 +16,8 @@ type SaveForumPostsRequest struct {
 	ForumPost DBForumPost
 }
 
-// SaveForumPostsResponse is the response definition for mobile to get forum posts
-type SaveForumPostsResponse struct {
+// BasicResponse is a basic response definition
+type BasicResponse struct {
 	Success  bool
 	ErrorMsg string
 }
@@ -56,5 +56,13 @@ type ForumVote struct {
 	ID         string   `bson:"_id" json:"_id"`
 	Count      int64    `bson:"count" json:"count"`
 	VoteStatus int      `bson:"voteStatus" json:"voteStatus"`
+	Metadata   Metadata `bson:"metadata" json:"metadata"`
+}
+
+type ForumVoteUpdateRequest struct {
+	VoteID     string   `bson:"voteId" json:"voteId"`
+	Offset     int64    `bson:"offset" json:"offset"`
+	VoteStatus int      `bson:"voteStatus" json:"voteStatus"`
+	UserID     string   `bson:"userId" json:"userId"`
 	Metadata   Metadata `bson:"metadata" json:"metadata"`
 }

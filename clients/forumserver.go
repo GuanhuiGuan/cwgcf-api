@@ -103,7 +103,7 @@ func (s *ForumServer) SaveForumPost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var err error
 	defer func() {
-		res := s.generateSaveForumPostResponse(err)
+		res := s.generateBasicResponse(err)
 		resBytes, _ := json.Marshal(res)
 		w.Write(resBytes)
 	}()
@@ -142,6 +142,31 @@ func (s *ForumServer) SaveForumPost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// HandleVoteEvent updates vote object and userVoteMap
+func (s *ForumServer) HandleVoteEvent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var err error
+	defer func() {
+		res := s.generateBasicResponse(err)
+		resBytes, _ := json.Marshal(res)
+		w.Write(resBytes)
+	}()
+	// Parse request
+	var forumVoteUpdateRequest models.ForumVoteUpdateRequest
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&forumVoteUpdateRequest)
+	if err != nil {
+		log.Printf("Failed to decode request: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	// Update vote
+	s.updateVote(forumVoteUpdateRequest)
+	// Update userVoteMap
+
+	w.WriteHeader(http.StatusOK)
+}
+
 /*
 	Helpers
 */
@@ -159,19 +184,20 @@ func (s *ForumServer) dbPostToPost(dbPost models.DBForumPost, profile models.Pro
 	return post
 }
 
-func (s *ForumServer) generateSaveForumPostResponse(err error) models.SaveForumPostsResponse {
+func (s *ForumServer) generateBasicResponse(err error) models.BasicResponse {
 	if err != nil {
-		return models.SaveForumPostsResponse{
+		return models.BasicResponse{
 			Success:  false,
 			ErrorMsg: err.Error(),
 		}
 	} else {
-		return models.SaveForumPostsResponse{
+		return models.BasicResponse{
 			Success: true,
 		}
 	}
 }
 
+// createAndGetVoteID creates a new vote object and returns the id
 func (s *ForumServer) createAndGetVoteID(metadata models.Metadata) string {
 	collection := s.Client.Database("cwgcf").Collection("forumVotes")
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
@@ -188,6 +214,7 @@ func (s *ForumServer) createAndGetVoteID(metadata models.Metadata) string {
 	return objectID.Hex()
 }
 
+// getVote retrieves a vote object
 func (s *ForumServer) getVote(id string) models.ForumVote {
 	collection := s.Client.Database("cwgcf").Collection("forumVotes")
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
@@ -202,4 +229,28 @@ func (s *ForumServer) getVote(id string) models.ForumVote {
 		return vote
 	}
 	return vote
+}
+
+// updateVote updates a vote object
+func (s *ForumServer) updateVote(request models.ForumVoteUpdateRequest) {
+	collection := s.Client.Database("cwgcf").Collection("forumVotes")
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	objectID, _ := primitive.ObjectIDFromHex(request.VoteID)
+	filter := bson.M{
+		"_id": objectID,
+	}
+	update := bson.M{
+		"$inc": bson.M{
+			"count": request.Offset,
+		},
+		"$set": bson.M{
+			"metadata.updatedAt": request.Metadata.UpdatedAt,
+		},
+	}
+	opt := options.Update()
+	opt.SetUpsert(true)
+	_, err := collection.UpdateOne(ctx, filter, update, opt)
+	if err != nil {
+		log.Printf("Error updating vote with id %s: %v", request.VoteID, err)
+	}
 }
